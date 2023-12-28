@@ -59,7 +59,7 @@ func (app *Config) HandleSubmission(w http.ResponseWriter, r *http.Request) {
 	case "log":
 		app.logItem(w, requestPayload.Log)
 	case "mail":
-		//app.sendMail(w, requestPayload.Mail)
+		app.sendMail(w, requestPayload.Mail)
 	default:
 		//app.errorJSON(w, errors.New("unknown action"))
 	}
@@ -140,5 +140,42 @@ func (app *Config) logItem(w http.ResponseWriter, log LogPayload) {
 	app.writeJSON(w, http.StatusAccepted, jsonResponse{
 		Error:   false,
 		Message: "logged",
+	})
+}
+
+func (app *Config) sendMail(w http.ResponseWriter, m MailPayload) {
+	jsonData, _ := json.MarshalIndent(m, "", "\t")
+
+	mailServiceURL := "http://mail-service:8383/send"
+	request, err := http.NewRequest("POST", mailServiceURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusAccepted {
+		var responseBody jsonResponse
+		err = json.NewDecoder(response.Body).Decode(&responseBody)
+		if err != nil {
+			app.errorJSON(w, err)
+			return
+		}
+
+		app.errorJSON(w, errors.New(responseBody.Message))
+		return
+	}
+
+	app.writeJSON(w, http.StatusAccepted, jsonResponse{
+		Error:   false,
+		Message: "mail sent to " + m.To,
 	})
 }
