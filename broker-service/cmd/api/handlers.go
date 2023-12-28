@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/rpc"
 
 	"github.com/hugogarcia/microservices/broker-service/event"
 )
@@ -59,7 +60,7 @@ func (app *Config) HandleSubmission(w http.ResponseWriter, r *http.Request) {
 	case "auth":
 		app.authenticate(w, requestPayload.Auth)
 	case "log":
-		app.logEventRabbit(w, requestPayload.Log)
+		app.logItemRPC(w, requestPayload.Log)
 	case "mail":
 		app.sendMail(w, requestPayload.Mail)
 	default:
@@ -215,4 +216,28 @@ func (app *Config) pushToQueue(l LogPayload) error {
 	}
 
 	return nil
+}
+
+func (app *Config) logItemRPC(w http.ResponseWriter, l LogPayload) {
+	client, err := rpc.Dial("tcp", "logger-service:5001")
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	var result string
+	err = client.Call(
+		"RPCServer.LogInfo",
+		l,
+		&result)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	app.writeJSON(w, http.StatusAccepted, jsonResponse{
+		Error:   false,
+		Message: "Sent log to RPC",
+		Data:    result,
+	})
 }
