@@ -12,17 +12,25 @@ import (
 
 const dbTimeout = time.Second * 3
 
-var db *sql.DB
+type PostgresRepository struct {
+	Conn *sql.DB
+}
+
+func NewPostgresRepository(pool *sql.DB) *PostgresRepository {
+	return &PostgresRepository{
+		Conn: pool,
+	}
+}
 
 // New is the function used to create an instance of the data package. It returns the type
 // Model, which embeds all the types we want to be available to our application.
-func New(dbPool *sql.DB) Models {
+/*func New(dbPool *sql.DB) Models {
 	db = dbPool
 
 	return Models{
 		User: User{},
 	}
-}
+}*/
 
 type Models struct {
 	User User
@@ -40,14 +48,14 @@ type User struct {
 }
 
 // GetAll returns a slice of all users, sorted by last name
-func (u *User) GetAll() ([]*User, error) {
+func (u *PostgresRepository) GetAll() ([]*User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
 	query := `select id, email, first_name, last_name, password, user_active, created_at, updated_at
 	from users order by last_name`
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := u.Conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -79,14 +87,14 @@ func (u *User) GetAll() ([]*User, error) {
 }
 
 // GetByEmail returns one user by email
-func (u *User) GetByEmail(email string) (*User, error) {
+func (u *PostgresRepository) GetByEmail(email string) (*User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
 	query := `select id, email, first_name, last_name, password, user_active, created_at, updated_at from users where email = $1`
 
 	var user User
-	row := db.QueryRowContext(ctx, query, email)
+	row := u.Conn.QueryRowContext(ctx, query, email)
 
 	err := row.Scan(
 		&user.ID,
@@ -107,14 +115,14 @@ func (u *User) GetByEmail(email string) (*User, error) {
 }
 
 // GetOne returns one user by id
-func (u *User) GetOne(id int) (*User, error) {
+func (u *PostgresRepository) GetOne(id int) (*User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
 	query := `select id, email, first_name, last_name, password, user_active, created_at, updated_at from users where id = $1`
 
 	var user User
-	row := db.QueryRowContext(ctx, query, id)
+	row := u.Conn.QueryRowContext(ctx, query, id)
 
 	err := row.Scan(
 		&user.ID,
@@ -136,7 +144,7 @@ func (u *User) GetOne(id int) (*User, error) {
 
 // Update updates one user in the database, using the information
 // stored in the receiver u
-func (u *User) Update() error {
+func (u *PostgresRepository) Update(user User) error {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
@@ -149,13 +157,13 @@ func (u *User) Update() error {
 		where id = $6
 	`
 
-	_, err := db.ExecContext(ctx, stmt,
-		u.Email,
-		u.FirstName,
-		u.LastName,
-		u.Active,
+	_, err := u.Conn.ExecContext(ctx, stmt,
+		user.Email,
+		user.FirstName,
+		user.LastName,
+		user.Active,
 		time.Now(),
-		u.ID,
+		user.ID,
 	)
 
 	if err != nil {
@@ -165,29 +173,14 @@ func (u *User) Update() error {
 	return nil
 }
 
-// Delete deletes one user from the database, by User.ID
-func (u *User) Delete() error {
-	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
-	defer cancel()
-
-	stmt := `delete from users where id = $1`
-
-	_, err := db.ExecContext(ctx, stmt, u.ID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // DeleteByID deletes one user from the database, by ID
-func (u *User) DeleteByID(id int) error {
+func (u *PostgresRepository) DeleteByID(id int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
 	stmt := `delete from users where id = $1`
 
-	_, err := db.ExecContext(ctx, stmt, id)
+	_, err := u.Conn.ExecContext(ctx, stmt, id)
 	if err != nil {
 		return err
 	}
@@ -196,7 +189,7 @@ func (u *User) DeleteByID(id int) error {
 }
 
 // Insert inserts a new user into the database, and returns the ID of the newly inserted row
-func (u *User) Insert(user User) (int, error) {
+func (u *PostgresRepository) Insert(user User) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
@@ -209,7 +202,7 @@ func (u *User) Insert(user User) (int, error) {
 	stmt := `insert into users (email, first_name, last_name, password, user_active, created_at, updated_at)
 		values ($1, $2, $3, $4, $5, $6, $7) returning id`
 
-	err = db.QueryRowContext(ctx, stmt,
+	err = u.Conn.QueryRowContext(ctx, stmt,
 		user.Email,
 		user.FirstName,
 		user.LastName,
@@ -227,7 +220,7 @@ func (u *User) Insert(user User) (int, error) {
 }
 
 // ResetPassword is the method we will use to change a user's password.
-func (u *User) ResetPassword(password string) error {
+func (u *PostgresRepository) ResetPassword(password string, user User) error {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 
@@ -237,7 +230,7 @@ func (u *User) ResetPassword(password string) error {
 	}
 
 	stmt := `update users set password = $1 where id = $2`
-	_, err = db.ExecContext(ctx, stmt, hashedPassword, u.ID)
+	_, err = u.Conn.ExecContext(ctx, stmt, hashedPassword, user.ID)
 	if err != nil {
 		return err
 	}
@@ -248,8 +241,8 @@ func (u *User) ResetPassword(password string) error {
 // PasswordMatches uses Go's bcrypt package to compare a user supplied password
 // with the hash we have stored for a given user in the database. If the password
 // and hash match, we return true; otherwise, we return false.
-func (u *User) PasswordMatches(plainText string) (bool, error) {
-	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(plainText))
+func (u *PostgresRepository) PasswordMatches(plainText string, user User) (bool, error) {
+	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(plainText))
 	if err != nil {
 		switch {
 		case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):

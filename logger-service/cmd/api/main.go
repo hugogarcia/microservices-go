@@ -56,6 +56,8 @@ func main() {
 	}
 	go app.rpcServer()
 
+	go app.grpcListen()
+
 	app.server()
 }
 
