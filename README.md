@@ -6,6 +6,7 @@ Project made following the Udemy Course: https://www.udemy.com/course/working-wi
 - Postgres
 - MongoDB
 - gRPC
+- RabbitMQ
 - BootStrap for front
 
 # How to run
